@@ -21,7 +21,7 @@ from google.adk.sessions import DatabaseSessionService
 from google.genai.types import Content, Part
 
 from .config import ADK_APP_NAME, DATABASE_URL, TELEGRAM_TOKEN
-from app.hotel_agent.agent import root_agent # Using relative import
+from .hotel_agent.agent import root_agent # Make sure this path matches your folder structure
 from .telegram_utils import send_telegram_message, set_telegram_webhook
 
 
@@ -37,8 +37,6 @@ try:
 except Exception as e:
     print("!!!!!!!!!! FAILED TO INITIALIZE ADK SESSION SERVICE !!!!!!!!!!")
     print(f"Error: {e}")
-    # In a real app, you might want the app to fail to start here.
-    # For now, we'll let it continue but it will fail on the first request.
     session_service = None
 
 if session_service:
@@ -66,20 +64,18 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 # --- Webhook Endpoint for Telegram ---
+# In app/main.py
+
 @app.post("/webhook/{token}")
 async def process_telegram_update(token: str, request: Request):
+    """This endpoint receives all incoming messages from Telegram."""
+    print("\n--- NEW WEBHOOK REQUEST RECEIVED ---")
     if not runner:
         print("ERROR: Cannot process request because ADK Runner is not available.")
-        # Optionally, send a message back to the user
-        # await send_telegram_message(chat_id, "Sorry, the bot is currently experiencing technical difficulties.")
         raise HTTPException(status_code=503, detail="Service is temporarily unavailable due to a configuration error.")
-        
-    # The rest of your webhook logic...
-    # ... (This can remain as it was) ...
-    print("\n--- NEW WEBHOOK REQUEST RECEIVED ---")
+
     try:
-        # ... your full webhook logic here ...
-        # (This part of your code seems fine)
+        # 1. Authenticate and parse the request
         if token != TELEGRAM_TOKEN:
             raise HTTPException(status_code=403, detail="Invalid token")
 
@@ -90,19 +86,49 @@ async def process_telegram_update(token: str, request: Request):
         
         chat_id = message["chat"]["id"]
         user_text = message["text"]
+        print(f"--- INFO: Processing message from Chat ID: {chat_id}, Text: '{user_text}'")
 
+        # --------------------- THE FINAL CORRECTED LOGIC ---------------------
+        # 2. Explicitly get the session and check if it exists.
+        user_id = str(chat_id)
+        session_id = str(chat_id)
+        
+        print(f"--- INFO: Checking for existing ADK session for user_id: {user_id}")
+        # 'await' is critical here
+        session = await session_service.get_session(app_name=ADK_APP_NAME, user_id=user_id, session_id=session_id)
+
+        # Now, explicitly check if the session is None (or falsy)
+        if not session:
+            print(f"--- INFO: Session not found. Creating a new one...")
+            # 'await' is critical here too
+            session = await session_service.create_session(app_name=ADK_APP_NAME, user_id=user_id, session_id=session_id)
+            print(f"--- INFO: New session created successfully.")
+        else:
+            print(f"--- INFO: Existing session found and loaded.")
+        # -----------------------------------------------------------------------
+
+        # 3. Process the message with the ADK Agent Runner
+        print(f"--- INFO: Calling ADK Runner for user_id: {user_id}...")
         content = Content(role="user", parts=[Part(text=user_text)])
         
-        final_response_text = "I'm sorry, an error occurred during processing."
-        async for event in runner.run_async(user_id=str(chat_id), session_id=str(chat_id), new_message=content):
+        final_response_text = "I'm sorry, I encountered a problem. Please try again."
+        
+        async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
+            print(f"--- DEBUG: Agent Event [Author: {event.author}]")
             if event.is_final_response() and event.content and event.content.parts:
                 final_response_text = event.content.parts[0].text
     
+        # 4. Send the final response back to the user
+        print(f"--- INFO: Agent generated final response: '{final_response_text}'")
         await send_telegram_message(chat_id, final_response_text)
+        print("--- INFO: Response sent to Telegram. ---")
+
         return {"status": "ok"}
     except Exception as e:
+        print(f"\n!!!!!!!!!! A CRITICAL UNEXPECTED ERROR OCCURRED IN WEBHOOK !!!!!!!!!!")
+        print(f"Critical Error: {e}")
         traceback.print_exc()
-        return {"status": "error"}
+        return {"status": "error", "detail": "An internal server error occurred."}
 
 
 # --- Health Check Endpoint ---
