@@ -1,0 +1,7 @@
+google-adk
+fastapi
+uvicorn
+python-dotenv
+psycopg2-binary # PostgreSQL driver
+SQLAlchemy
+httpx          # For making API calls to Telegram
