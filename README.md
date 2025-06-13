@@ -26,3 +26,11 @@ hotel-telegram-bot/
 │           ├── booking_tools.py   # Check availability, book rooms (DB write)
 │           ├── info_tools.py      # Get room details, search attractions
 │           └── escalation_tools.py# Handle human handoff
+
+
+
+## We need to use "python -m uvicorn app.main:app --reload" to run the FastAPI app.
+## while developing, ngrok is invaluable to connect as webhook with Telegram.
+## As external database, we used Neon for persistent memory.
+## VPN is required for me to use ngrok.
+## https://webhook.site/ is used to test our Telegram Bot.
